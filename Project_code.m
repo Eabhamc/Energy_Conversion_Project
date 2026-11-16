@@ -71,11 +71,68 @@ elseif Re_D >= 3000
 end
 h_w = (Nu_D*w_k)/tube_di;
 R_w = 1/(tube_area* h_w);
+
 %Convection from outer glass to outside
+
 h_a =5.7 + 3.8*wind_speed;
 R_a = 1/(h_a*total_p_area);
+
 %Glass Conduction
 g_k = 0.78;
 R_g = g_thickness/(g_k*total_p_area);
+
+old_Tp = 350;
+old_Tg = 300;
+
+for iteration = 1:100
+ avg_c_temp = (old_Tp+old_Tg)/2;
+ beta = 1/avg_c_temp;
+ Ra_c = accel_grav*beta*abs(old_Tp-old_Tg)*c_thickness^3/(a_dyn_vis/(atm_p/(R*avg_c_temp)))^2*a_Pr;
+
+
+ if Ra_c >= 10^8
+   error('outside range');
+
+ elseif Ra_c <= 1708
+   Nu_horizontal = 1;
+
+ else
+   Nu_horizontal = 1 + 1.44*max(0,(1-1708/Ra_c))+ max(0,((Ra_c^(1/3)/18)-1));
+
+ end
+
+  Nu_vertical = 0.22*(a_Pr*Ra_c/(0.2+a_Pr))^0.28*(c_length/c_thickness)^(-1/4);
+
+  if old_Tp > old_Tg
+    Nu_c = Nu_horizontal*(Nu_vertical/Nu_horizontal)^(inclination_ang/critical_ang)*sin(critical_ang)^(inclination_ang/(4*critical_ang));
+
+  elseif old_Tp < old_Tg
+    Nu_c = 1+(Nu_vertical-1)*sin(inclination_ang);
+
+  else
+    Nu_c = 1;
+
+end
+
+
+h_c = (Nu_c*a_k)/c_thickness;
+R_c = 1/(h_c*total_p_area);
+R_top = R_c + R_g + R_a;
+R_sky = 1/(epsilon_p*sigma*total_p_area*(old_Tp+T_sky)*(old_Tp^2+T_sky^2));
+w_conductance = mass_flow_rate*w_cp*(1-exp(-h_w*tube_area/(mass_flow_rate*w_cp)));
+
+new_Tp = (T_w*w_conductance + T_a/R_top +T_sky/R_sky + qs*total_p_area)/(w_conductance + 1/R_top + 1/R_sky);
+new_Tg = new_Tp - (R_c/R_top)*(new_Tp - T_a);
+
+plate_change = abs(old_Tp-new_Tp);
+glass_change = abs(old_Tg-new_Tg);
+
+old_Tg = new_Tg;
+old_Tp = new_Tp;
+
+if plate_change < 0.001 && glass_change < 0.001
+break;
+end
+end
 
 
