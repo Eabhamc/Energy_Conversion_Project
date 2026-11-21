@@ -1,7 +1,9 @@
-
+clc;
+clear;
+close all;
 %Design Parameters
 tube_di = 0.025;
-tube_length = 153;
+tube_length = 35;
 mass_flow_rate = 0.1;
 panel_eff = 0.157;
 
@@ -72,13 +74,13 @@ w_Pr = 5.42;
 w_cp = 4178;
 
 %__________________________________
-%Air Properties @40 degrees
+%Air Properties @20 degrees
 R = 287;
-a_density = 1.127;
+a_density = 1.204;
 a_cp = 1007;
-a_k = 0.02662;
-a_dyn_vis = 1.918*10^-5;
-a_Pr = 0.7255;
+a_k = 0.02514;
+a_dyn_vis = 1.825*10^-5;
+a_Pr = 0.7309;
 atm_p = 10^5;
 
 %Resistance: Rw, Ra, Rg
@@ -125,7 +127,8 @@ for jj=1:N_inc
   wind_speed = weather(row,3);
   T_a = weather(row, 4);
   T_sky = 0.0552*T_a^1.5;
-  qs = (alpha_p - panel_eff)* G;
+  Q_s = ((alpha_p - panel_eff)* G)*total_p_area;
+
   %Convection from outer glass to outside
   h_a =5.7 + 3.8*wind_speed;
   R_a = 1/(h_a*total_p_area);
@@ -134,21 +137,21 @@ for jj=1:N_inc
 for iteration = 1:100
  avg_c_temp = (old_Tp+old_Tg)/2;
  beta = 1/avg_c_temp;
- Ra_c = accel_grav*beta*abs(old_Tp-old_Tg)*c_thickness^3/(a_dyn_vis/(atm_p/(R*avg_c_temp)))^2*a_Pr;
+ Ra_t = accel_grav*beta*abs(old_Tp-old_Tg)*c_thickness^3/(a_dyn_vis/(atm_p/(R*avg_c_temp)))^2*a_Pr;
 
 
- if Ra_c >= 10^8
+ if Ra_t >= 10^8
    error('outside range');
 
- elseif Ra_c <= 1708
+ elseif Ra_t <= 1708
    Nu_horizontal = 1;
 
  else
-   Nu_horizontal = 1 + 1.44*max(0,(1-1708/Ra_c))+ max(0,((Ra_c^(1/3)/18)-1));
+   Nu_horizontal = 1 + 1.44*max(0,(1-1708/Ra_t))+ max(0,((Ra_t^(1/3)/18)-1));
 
  end
 
-  Nu_vertical = 0.22*(a_Pr*Ra_c/(0.2+a_Pr))^0.28*(c_length/c_thickness)^(-1/4);
+  Nu_vertical = 0.22*(a_Pr*Ra_t/(0.2+a_Pr))^0.28*(c_length/c_thickness)^(-1/4);
 
 
   if old_Tp > old_Tg
@@ -168,7 +171,7 @@ R_top = R_c + R_g + R_a;
 R_sky = 1/(epsilon_p*sigma*total_p_area*(old_Tp+T_sky)*(old_Tp^2+T_sky^2));
 w_conductance = mass_flow_rate*w_cp*(1-exp(-h_w*tube_area/(mass_flow_rate*w_cp)));
 
-new_Tp = (T_w*w_conductance + T_a/R_top +T_sky/R_sky + qs*total_p_area)/(w_conductance + 1/R_top + 1/R_sky);
+new_Tp = (T_w*w_conductance + T_a/R_top +T_sky/R_sky + Q_s)/(w_conductance + 1/R_top + 1/R_sky);
 new_Tg = new_Tp - (R_c/R_top)*(new_Tp - T_a);
 
 plate_change = abs(old_Tp-new_Tp);
@@ -184,15 +187,18 @@ end
 
 end
 
-T_out = old_Tp + (T_w - old_Tp)*exp(-h_w*tube_area/(mass_flow_rate*w_cp));
+
+T_out = old_Tp - (old_Tp- T_w)*exp(-h_w*tube_area/(mass_flow_rate*w_cp));
 Q_useful = mass_flow_rate*w_cp *(T_out-T_w);
 
 if Q_useful < 0
   Q_useful = 0;
 end
 
-Q_tank = Q_useful + P_PV;
+plate_temp = old_Tp;
+inlet_temp = T_w;
 
+Q_tank = Q_useful + P_PV;
 T_w = T_w+Q_tank*dt/(tank_mass*w_cp);
 total_seconds(jj+1) = time(jj+1);
 tank_temp(jj+1) = T_w-273.15;
@@ -202,9 +208,35 @@ if T_w > end_temp
 end
 end
 
+%__________________________________
+%Pipe Length Investigation
+%__________________________________
+fprintf('Final Plate Temp = %.3f K\n', plate_temp);
+fprintf('Final inlet Temp = %.3f K\n',inlet_temp);
+
+section_length = 1;
+pipe_length = 1:section_length:tube_length;
+
+for i = 1:length(pipe_length)
+  water_out = plate_temp + (inlet_temp-plate_temp)*exp(-h_w*pi*tube_di*section_length/(mass_flow_rate*w_cp));
+  section_heat(i) = mass_flow_rate*w_cp *(water_out-inlet_temp);
+  inlet_temp = water_out;
+end
+
+fprintf('Final time: %.0f seconds\n', total_seconds(end));
+
+%__________________________________
+%Plot Figures
+%__________________________________
 figure (1);
 plot(total_seconds/3600, tank_temp);
 xlabel('Time of Day [h]');
 ylabel('Temperature of the Tank [C]');
 grid on;
 
+figure;
+plot(pipe_length,section_heat);
+xlabel('Distance along tube [m]');
+ylabel('Heat gained in each 1 m section [W]');
+title('Heat transfer along the tube');
+grid on;
